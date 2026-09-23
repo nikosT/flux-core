@@ -148,7 +148,8 @@ class CoSchedPlugin(CLIPlugin):
                 ntasks = 0
                 nslots = 1
                 label = ""
-                per_resource = {}
+                per_resource_type = None
+                per_resource_count = 0
                 for parent, resource, count in jobspec.resource_walk():
                     if parent and parent["type"] != "slot":
                         # Preserve an existing resource hierarchy, e.g.
@@ -163,14 +164,14 @@ class CoSchedPlugin(CLIPlugin):
                                 ntasks = tcount * count
                                 nslots = count
                             elif ttype == "per_resource":
-                                for rtype, rcount in tcount.items():
-                                    per_resource[rtype] = rcount
+                                per_resource_type = tcount["type"]
+                                per_resource_count = tcount["count"]
                                 nslots = count
                             else:
                                 ntasks = tcount
                                 nslots = count
-                    if resource["type"] in per_resource:
-                        ntasks += per_resource[resource["type"]] * count
+                    if resource["type"] == per_resource_type:
+                        ntasks += per_resource_count * count
 
                 resource_type = handle.conf_get(
                     "cosched.resource_type", default="numanode"

@@ -222,6 +222,20 @@ test_expect_success 'command is preserved during transformation' '
 	" actual.json
 '
 
+for tasks_per_core in 1 2; do
+	test_expect_success "per_resource counts $tasks_per_core tasks per core" '
+		python3 "$VALIDATOR" \
+			--allowed --ntasks 5 --tasks-per-core $tasks_per_core \
+			--waste-threshold 0.0 >actual.json &&
+		jq -e --argjson ntasks "$((5 * tasks_per_core))" "
+			.resources[0].type == \"numanode\" and
+			.resources[0].count == 1 and
+			.resources[0].with[0].count == 5 and
+			.tasks[0].count == {total: \$ntasks}
+		" actual.json
+	'
+done
+
 for node_options in "--nodes 1" "--nodes 2" "--nodes 2 --exclusive"; do
 	test_expect_success "explicit node request is preserved: $node_options" '
 		python3 "$VALIDATOR" \

@@ -5,6 +5,7 @@ import json
 from unittest.mock import patch
 
 from flux.job import JobspecV1
+from flux.job.Jobspec import Jobspec
 
 from flux.cli.plugins import cosched
 
@@ -31,6 +32,12 @@ def parse_args(plugin):
         type=int,
         default=6,
         help="Number of tasks in the input jobspec (default: 6)",
+    )
+
+    parser.add_argument(
+        "--tasks-per-core",
+        type=int,
+        help="Use the general jobspec per_resource task-count form",
     )
 
     parser.add_argument(
@@ -117,6 +124,15 @@ def main():
         num_nodes=args.nodes,
         exclusive=args.exclusive,
     )
+
+    if args.tasks_per_core is not None:
+        # tasks.count.per_resource is part of the general schema, not V1.
+        spec = dict(jobspec.jobspec)
+        spec["version"] = 999
+        spec["tasks"][0]["count"] = {
+            "per_resource": {"type": "core", "count": args.tasks_per_core}
+        }
+        jobspec = Jobspec(**spec)
 
     fake_flux_factory = lambda: FakeFlux(config)
 
