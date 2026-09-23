@@ -41,6 +41,11 @@ def parse_args(plugin):
     )
 
     parser.add_argument(
+        "--resources-json",
+        help="Read the input resource tree from a JSON file",
+    )
+
+    parser.add_argument(
         "--nodes",
         type=int,
         help="Explicit node count in the input jobspec",
@@ -125,13 +130,17 @@ def main():
         exclusive=args.exclusive,
     )
 
-    if args.tasks_per_core is not None:
+    if args.tasks_per_core is not None or args.resources_json:
         # tasks.count.per_resource is part of the general schema, not V1.
         spec = dict(jobspec.jobspec)
         spec["version"] = 999
-        spec["tasks"][0]["count"] = {
-            "per_resource": {"type": "core", "count": args.tasks_per_core}
-        }
+        if args.tasks_per_core is not None:
+            spec["tasks"][0]["count"] = {
+                "per_resource": {"type": "core", "count": args.tasks_per_core}
+            }
+        if args.resources_json:
+            with open(args.resources_json) as stream:
+                spec["resources"] = json.load(stream)
         jobspec = Jobspec(**spec)
 
     fake_flux_factory = lambda: FakeFlux(config)

@@ -236,6 +236,16 @@ for tasks_per_core in 1 2; do
 	'
 done
 
+test_expect_success 'per_resource accumulates repeated resource types' '
+	jq -n "[{type: \"slot\", count: 5, label: \"task\", with: [
+		{type: \"core\", count: 1},
+		{type: \"core\", count: 1}
+	]}]" >resources.json &&
+	python3 "$VALIDATOR" --allowed --tasks-per-core 2 \
+		--resources-json resources.json >actual.json &&
+	jq -e ".tasks[0].count == {total: 20}" actual.json
+'
+
 for node_options in "--nodes 1" "--nodes 2" "--nodes 2 --exclusive"; do
 	test_expect_success "explicit node request is preserved: $node_options" '
 		python3 "$VALIDATOR" \

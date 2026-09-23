@@ -171,6 +171,9 @@ class CoSchedPlugin(CLIPlugin):
                                 ntasks = tcount
                                 nslots = count
                     if resource["type"] == per_resource_type:
+                        # A slot may contain multiple vertices of this type.
+                        # resource_walk includes ancestor multiplicities,
+                        # but each vertex still contributes to the total.
                         ntasks += per_resource_count * count
 
                 resource_type = handle.conf_get(
