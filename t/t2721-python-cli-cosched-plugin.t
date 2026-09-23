@@ -256,6 +256,31 @@ for node_options in "--nodes 1" "--nodes 2" "--nodes 2 --exclusive"; do
 	'
 done
 
+test_expect_success 'missing slot fails explicitly' '
+	jq -n "[{type: \"core\", count: 5}]" >resources.json &&
+	test_must_fail python3 "$VALIDATOR" --allowed \
+		--resources-json resources.json >actual.out 2>actual.err &&
+	grep "Co-scheduling requires exactly one slot vertex" actual.err
+'
+
+test_expect_success 'mismatched task slot fails explicitly' '
+	jq -n "[{type: \"slot\", count: 5, label: \"other\", with: [
+		{type: \"core\", count: 1}
+	]}]" >resources.json &&
+	test_must_fail python3 "$VALIDATOR" --allowed \
+		--resources-json resources.json >actual.out 2>actual.err &&
+	grep "Co-scheduling task does not reference its slot" actual.err
+'
+
+test_expect_success 'unmatched per_resource type fails explicitly' '
+	jq -n "[{type: \"slot\", count: 5, label: \"task\", with: [
+		{type: \"gpu\", count: 1}
+	]}]" >resources.json &&
+	test_must_fail python3 "$VALIDATOR" --allowed --tasks-per-core 1 \
+		--resources-json resources.json >actual.out 2>actual.err &&
+	grep "Co-scheduling requires positive slot and task counts" actual.err
+'
+
 test_expect_success 'zero tasks are rejected' '
 	test_must_fail python3 "$VALIDATOR" \
 		--ntasks 0 >actual.out 2>actual.err
