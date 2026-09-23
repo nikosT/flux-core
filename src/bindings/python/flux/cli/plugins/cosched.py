@@ -204,8 +204,8 @@ class CoSchedPlugin(CLIPlugin):
                     and ((resource_count * slots_inside_resource) / ntasks - 1)
                     <= waste_threshold
                 ):
-                    jobspec.resources.clear()
-                    jobspec.resources.append(
+                    # resources is read-only; replace its contents in one step.
+                    jobspec.resources[:] = [
                         {
                             "type": resource_type,
                             "count": resource_count,
@@ -218,7 +218,7 @@ class CoSchedPlugin(CLIPlugin):
                                 }
                             ],
                         }
-                    )
+                    ]
                     jobspec.tasks[0]["count"] = {"total": ntasks}
         except KeyError as e:
             raise ValueError(f"Missing required co-scheduling field: {e}") from e
