@@ -34,6 +34,18 @@ def parse_args(plugin):
     )
 
     parser.add_argument(
+        "--nodes",
+        type=int,
+        help="Explicit node count in the input jobspec",
+    )
+
+    parser.add_argument(
+        "--exclusive",
+        action="store_true",
+        help="Request exclusive nodes in the input jobspec",
+    )
+
+    parser.add_argument(
         "--allowed",
         dest="allowed",
         action="store_true",
@@ -102,6 +114,8 @@ def main():
     jobspec = JobspecV1.from_command(
         args.command,
         num_tasks=args.ntasks,
+        num_nodes=args.nodes,
+        exclusive=args.exclusive,
     )
 
     fake_flux_factory = lambda: FakeFlux(config)
@@ -111,11 +125,13 @@ def main():
             plugin,
             "find_cores_per_resource",
             return_value=args.cores_per_resource,
-        ):
+        ) as find_cores:
             plugin.modify_jobspec(
                 args=args,
                 jobspec=jobspec,
             )
+            if args.nodes is not None:
+                find_cores.assert_not_called()
 
     output = dict(jobspec.jobspec)
     output.pop("attributes", None)

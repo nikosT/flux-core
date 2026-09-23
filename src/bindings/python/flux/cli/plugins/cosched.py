@@ -18,6 +18,11 @@ class CoSchedPlugin(CLIPlugin):
     n_way=2
     resource_type="numanode"
     Also the flux resource graph (jgf) should be defined for the plugin to work.
+
+    Requests with resources above slots (e.g. an explicit node count) are
+    left unchanged: replacing that hierarchy would discard placement or
+    exclusivity constraints. Skipping this transformation does not prevent
+    the scheduler from sharing non-exclusive nodes between jobs.
     """
 
     def __init__(self, prog, prefix=None):
@@ -146,7 +151,10 @@ class CoSchedPlugin(CLIPlugin):
                 per_resource = {}
                 for parent, resource, count in jobspec.resource_walk():
                     if parent and parent["type"] != "slot":
-                        # if the jobspec specifies more resources than slots don't bother to co-schedule
+                        # Preserve an existing resource hierarchy, e.g.
+                        # node -> slot -> core from an explicit node count.
+                        # Replacing it would lose placement/exclusivity
+                        # constraints. Only slots may have child resources.
                         return
                     if resource["type"] == "slot":
                         label = resource["label"]

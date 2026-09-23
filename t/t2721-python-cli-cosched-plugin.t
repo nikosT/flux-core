@@ -222,6 +222,16 @@ test_expect_success 'command is preserved during transformation' '
 	" actual.json
 '
 
+for node_options in "--nodes 1" "--nodes 2" "--nodes 2 --exclusive"; do
+	test_expect_success "explicit node request is preserved: $node_options" '
+		python3 "$VALIDATOR" \
+			--no-allowed --ntasks 5 $node_options >expected.json &&
+		python3 "$VALIDATOR" \
+			--allowed --ntasks 5 $node_options >actual.json &&
+		test_cmp expected.json actual.json
+	'
+done
+
 test_expect_success 'zero tasks are rejected' '
 	test_must_fail python3 "$VALIDATOR" \
 		--ntasks 0 >actual.out 2>actual.err
