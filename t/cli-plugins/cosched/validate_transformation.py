@@ -5,6 +5,7 @@ import json
 from unittest.mock import patch
 
 from flux.job import JobspecV1
+from flux.job.Jobspec import Jobspec
 
 from flux.cli.plugins import cosched
 
@@ -31,6 +32,29 @@ def parse_args(plugin):
         type=int,
         default=6,
         help="Number of tasks in the input jobspec (default: 6)",
+    )
+
+    parser.add_argument(
+        "--tasks-per-core",
+        type=int,
+        help="Use the general jobspec per_resource task-count form",
+    )
+
+    parser.add_argument(
+        "--resources-json",
+        help="Read the input resource tree from a JSON file",
+    )
+
+    parser.add_argument(
+        "--nodes",
+        type=int,
+        help="Explicit node count in the input jobspec",
+    )
+
+    parser.add_argument(
+        "--exclusive",
+        action="store_true",
+        help="Request exclusive nodes in the input jobspec",
     )
 
     parser.add_argument(
@@ -102,7 +126,22 @@ def main():
     jobspec = JobspecV1.from_command(
         args.command,
         num_tasks=args.ntasks,
+        num_nodes=args.nodes,
+        exclusive=args.exclusive,
     )
+
+    if args.tasks_per_core is not None or args.resources_json:
+        # tasks.count.per_resource is part of the general schema, not V1.
+        spec = dict(jobspec.jobspec)
+        spec["version"] = 999
+        if args.tasks_per_core is not None:
+            spec["tasks"][0]["count"] = {
+                "per_resource": {"type": "core", "count": args.tasks_per_core}
+            }
+        if args.resources_json:
+            with open(args.resources_json) as stream:
+                spec["resources"] = json.load(stream)
+        jobspec = Jobspec(**spec)
 
     fake_flux_factory = lambda: FakeFlux(config)
 
@@ -111,11 +150,13 @@ def main():
             plugin,
             "find_cores_per_resource",
             return_value=args.cores_per_resource,
-        ):
+        ) as find_cores:
             plugin.modify_jobspec(
                 args=args,
                 jobspec=jobspec,
             )
+            if args.nodes is not None:
+                find_cores.assert_not_called()
 
     output = dict(jobspec.jobspec)
     output.pop("attributes", None)

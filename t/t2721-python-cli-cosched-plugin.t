@@ -222,6 +222,65 @@ test_expect_success 'command is preserved during transformation' '
 	" actual.json
 '
 
+for tasks_per_core in 1 2; do
+	test_expect_success "per_resource counts $tasks_per_core tasks per core" '
+		python3 "$VALIDATOR" \
+			--allowed --ntasks 5 --tasks-per-core $tasks_per_core \
+			--waste-threshold 0.0 >actual.json &&
+		jq -e --argjson ntasks "$((5 * tasks_per_core))" "
+			.resources[0].type == \"numanode\" and
+			.resources[0].count == 1 and
+			.resources[0].with[0].count == 5 and
+			.tasks[0].count == {total: \$ntasks}
+		" actual.json
+	'
+done
+
+test_expect_success 'per_resource accumulates repeated resource types' '
+	jq -n "[{type: \"slot\", count: 5, label: \"task\", with: [
+		{type: \"core\", count: 1},
+		{type: \"core\", count: 1}
+	]}]" >resources.json &&
+	python3 "$VALIDATOR" --allowed --tasks-per-core 2 \
+		--resources-json resources.json >actual.json &&
+	jq -e ".tasks[0].count == {total: 20}" actual.json
+'
+
+for node_options in "--nodes 1" "--nodes 2" "--nodes 2 --exclusive"; do
+	test_expect_success "explicit node request is preserved: $node_options" '
+		python3 "$VALIDATOR" \
+			--no-allowed --ntasks 5 $node_options >expected.json &&
+		python3 "$VALIDATOR" \
+			--allowed --ntasks 5 $node_options >actual.json &&
+		test_cmp expected.json actual.json
+	'
+done
+
+test_expect_success 'missing slot fails explicitly' '
+	jq -n "[{type: \"core\", count: 5}]" >resources.json &&
+	test_must_fail python3 "$VALIDATOR" --allowed \
+		--resources-json resources.json >actual.out 2>actual.err &&
+	grep "Co-scheduling requires exactly one slot vertex" actual.err
+'
+
+test_expect_success 'mismatched task slot fails explicitly' '
+	jq -n "[{type: \"slot\", count: 5, label: \"other\", with: [
+		{type: \"core\", count: 1}
+	]}]" >resources.json &&
+	test_must_fail python3 "$VALIDATOR" --allowed \
+		--resources-json resources.json >actual.out 2>actual.err &&
+	grep "Co-scheduling task does not reference its slot" actual.err
+'
+
+test_expect_success 'unmatched per_resource type fails explicitly' '
+	jq -n "[{type: \"slot\", count: 5, label: \"task\", with: [
+		{type: \"gpu\", count: 1}
+	]}]" >resources.json &&
+	test_must_fail python3 "$VALIDATOR" --allowed --tasks-per-core 1 \
+		--resources-json resources.json >actual.out 2>actual.err &&
+	grep "Co-scheduling requires positive slot and task counts" actual.err
+'
+
 test_expect_success 'zero tasks are rejected' '
 	test_must_fail python3 "$VALIDATOR" \
 		--ntasks 0 >actual.out 2>actual.err

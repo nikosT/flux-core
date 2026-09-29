@@ -11,13 +11,19 @@ class CoSchedPlugin(CLIPlugin):
 
     Modifies the jobspec to request slots grouped under a configured
     resource type, e.g. numanode, socket, or ccd.
-    To enable this plugin, set the allowed parameter under the cosched key in flux config as true.
+    To enable this plugin, set allowed=true in the coscheduling-cpu
+    configuration table.
     e.g.
     [coscheduling-cpu]
     allowed=true
     n_way=2
     resource_type="numanode"
     Also the flux resource graph (jgf) should be defined for the plugin to work.
+
+    Requests with resources above slots (e.g. an explicit node count) are
+    left unchanged: replacing that hierarchy would discard placement or
+    exclusivity constraints. Skipping this transformation does not prevent
+    the scheduler from sharing non-exclusive nodes between jobs.
     """
 
     def __init__(self, prog, prefix=None):
@@ -139,34 +145,48 @@ class CoSchedPlugin(CLIPlugin):
                 if len(jobspec.tasks) != 1:
                     # Multiple slot labels in the same request are not allowed for co-scheduling
                     return
-                task_count = jobspec.tasks[0]["count"]
-                ntasks = None
-                nslots = None
-                label = ""
-                per_resource = {}
-                for parent, resource, count in jobspec.resource_walk():
-                    if parent and parent["type"] != "slot":
-                        # if the jobspec specifies more resources than slots don't bother to co-schedule
-                        return
-                    if resource["type"] == "slot":
-                        label = resource["label"]
-                        for ttype, tcount in task_count.items():
-                            if ttype == "per_slot":
-                                ntasks = tcount * count
-                                nslots = count
-                            elif ttype == "per_resource":
-                                # RFC 14: per_resource SHALL be a dict with keys: "type" and "count"
-                                per_resource = tcount
-                                nslots = count
-                            else:
-                                ntasks = tcount
-                                nslots = count
-                    if per_resource and resource["type"] == per_resource["type"]:
-                        ntasks = per_resource["count"] * count
-
-                if ntasks is None or nslots is None:
+                resources = list(jobspec.resource_walk())
+                if any(
+                    parent and parent["type"] != "slot" for parent, _, _ in resources
+                ):
+                    # Preserve placement/exclusivity in existing hierarchies,
+                    # e.g. node -> slot -> core from an explicit node count.
+                    return
+                slots = [
+                    (resource, count)
+                    for _, resource, count in resources
+                    if resource["type"] == "slot"
+                ]
+                if len(slots) != 1:
+                    raise ValueError("Co-scheduling requires exactly one slot vertex")
+                slot, nslots = slots[0]
+                label = slot["label"]
+                task = jobspec.tasks[0]
+                if task["slot"] != label:
+                    raise ValueError("Co-scheduling task does not reference its slot")
+                task_count = task["count"]
+                if len(task_count) != 1:
+                    raise ValueError("Task count must contain exactly one count mode")
+                ttype, tcount = next(iter(task_count.items()))
+                if ttype == "per_slot":
+                    ntasks = tcount * nslots
+                elif ttype == "total":
+                    ntasks = tcount
+                elif ttype == "per_resource":
+                    per_resource_type = tcount["type"]
+                    per_resource_count = tcount["count"]
+                    # Zero is the accumulator identity, not a fallback count.
+                    ntasks = 0
+                    for parent, resource, count in resources:
+                        if parent is slot and resource["type"] == per_resource_type:
+                            # A slot may contain multiple vertices of this type.
+                            # Each contributes its ancestor-multiplied count.
+                            ntasks += per_resource_count * count
+                else:
+                    raise ValueError(f"Unsupported task count mode: {ttype}")
+                if nslots <= 0 or ntasks <= 0:
                     raise ValueError(
-                        "Unable to determine task and slot counts from jobspec resources"
+                        "Co-scheduling requires positive slot and task counts"
                     )
 
                 resource_type = handle.conf_get(
@@ -185,6 +205,7 @@ class CoSchedPlugin(CLIPlugin):
                     and ((resource_count * slots_inside_resource) / ntasks - 1)
                     <= waste_threshold
                 ):
+                    # resources is read-only; replace its contents in one step.
                     jobspec.resources[:] = [
                         {
                             "type": resource_type,
@@ -199,7 +220,6 @@ class CoSchedPlugin(CLIPlugin):
                             ],
                         }
                     ]
-
                     jobspec.tasks[0]["count"] = {"total": ntasks}
         except KeyError as e:
-            print(f"Error in allocation type plugin: {e}")
+            raise ValueError(f"Missing required co-scheduling field: {e}") from e
